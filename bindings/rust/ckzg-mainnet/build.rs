@@ -1,3 +1,3 @@
 fn main() {
-    // This is an empty build script.
+    println!("cargo:rustc-link-lib=ckzg");
 }
