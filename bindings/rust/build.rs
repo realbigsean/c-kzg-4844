@@ -125,14 +125,6 @@ fn main() {
         .parent()
         .expect("bindings dir is nested");
 
-    let field_elements_per_blob = if cfg!(feature = "minimal-spec") {
-        MINIMAL_FIELD_ELEMENTS_PER_BLOB
-    } else {
-        MAINNET_FIELD_ELEMENTS_PER_BLOB
-    };
-
-    eprintln!("Using FIELD_ELEMENTS_PER_BLOB={}", field_elements_per_blob);
-
     let blst_base_dir = root_dir.join("blst");
     compile_blst(blst_base_dir.clone());
 
@@ -141,34 +133,78 @@ fn main() {
 
     let c_src_dir = root_dir.join("src");
 
-    let mut cc = cc::Build::new();
+    let mut mainnet_cc = cc::Build::new();
 
     #[cfg(windows)]
-    cc.flag("-D_CRT_SECURE_NO_WARNINGS");
+    mainnet_cc.flag("-D_CRT_SECURE_NO_WARNINGS");
 
-    cc.include(blst_headers_dir.clone());
-    cc.warnings(false);
-    cc.flag(format!("-DFIELD_ELEMENTS_PER_BLOB={}", field_elements_per_blob).as_str());
-    cc.file(c_src_dir.join("c_kzg_4844.c"));
+    mainnet_cc.include(blst_headers_dir.clone());
+    mainnet_cc.warnings(false);
+    mainnet_cc.flag(
+        format!(
+            "-DFIELD_ELEMENTS_PER_BLOB={}",
+            MAINNET_FIELD_ELEMENTS_PER_BLOB
+        )
+        .as_str(),
+    );
+    mainnet_cc.file(c_src_dir.join("c_kzg_4844.c"));
 
-    cc.try_compile("ckzg").expect("Failed to compile ckzg");
+    mainnet_cc
+        .try_compile("ckzg_mainnet")
+        .expect("Failed to compile ckzg");
 
     // Tell cargo to search for the static blst exposed by the blst-bindings' crate.
     println!("cargo:rustc-link-lib=static=blst");
 
-    let bindings_out_path = cargo_dir.join("src").join("bindings").join("generated.rs");
+    let mainnet_bindings_out_path = cargo_dir
+        .join("src")
+        .join("bindings")
+        .join("generated_mainnet.rs");
+    let minimal_bindings_out_path = cargo_dir
+        .join("src")
+        .join("bindings")
+        .join("generated_minimal.rs");
     let header_file_path = c_src_dir.join("c_kzg_4844.h");
     let header_file = header_file_path.to_str().expect("valid header file");
 
     make_bindings(
-        field_elements_per_blob,
+        MAINNET_FIELD_ELEMENTS_PER_BLOB,
         header_file,
         &blst_headers_dir.to_string_lossy(),
-        bindings_out_path,
+        mainnet_bindings_out_path,
     );
 
     // Finally, tell cargo this provides ckzg
-    println!("cargo:rustc-link-lib=ckzg");
+    println!("cargo:rustc-link-lib=ckzg_mainnet");
+
+    let mut minimal_cc = cc::Build::new();
+
+    #[cfg(windows)]
+    minimal_cc.flag("-D_CRT_SECURE_NO_WARNINGS");
+
+    minimal_cc.include(blst_headers_dir.clone());
+    minimal_cc.warnings(false);
+    minimal_cc.flag(
+        format!(
+            "-DFIELD_ELEMENTS_PER_BLOB={}",
+            MINIMAL_FIELD_ELEMENTS_PER_BLOB
+        )
+        .as_str(),
+    );
+    minimal_cc.file(c_src_dir.join("c_kzg_4844.c"));
+
+    minimal_cc
+        .try_compile("ckzg_minimal")
+        .expect("Failed to compile ckzg");
+    make_bindings(
+        MINIMAL_FIELD_ELEMENTS_PER_BLOB,
+        header_file,
+        &blst_headers_dir.to_string_lossy(),
+        minimal_bindings_out_path,
+    );
+
+    // Finally, tell cargo this provides ckzg
+    println!("cargo:rustc-link-lib=ckzg_minimal");
 }
 
 fn make_bindings<P>(
