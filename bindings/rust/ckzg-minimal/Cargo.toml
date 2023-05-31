@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 c-kzg = {path = "../ckzg-sys", features = ["minimal-spec"]}
+
+[build-dependencies]
+c-kzg = {path = "../ckzg-sys", features = ["minimal-spec"]}
