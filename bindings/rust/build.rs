@@ -165,7 +165,7 @@ fn main() {
     let header_file = header_file_path.to_str().expect("valid header file");
 
     // Finally, tell cargo this provides ckzg/ckzg_min
-    println!("cargo:rustc-link-lib={lib_name}");
+    println!("cargo:rustc-link-lib=static={lib_name}");
 
     make_bindings(
         lib_name,
