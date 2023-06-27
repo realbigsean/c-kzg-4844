@@ -147,6 +147,8 @@ fn main() {
     #[cfg(windows)]
     cc.flag("-D_CRT_SECURE_NO_WARNINGS");
 
+    cc.flag("-E");
+
     cc.include(blst_headers_dir.clone());
     cc.warnings(false);
     cc.flag(format!("-DLIB_PREFIX={lib_name}").as_str());
