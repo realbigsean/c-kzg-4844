@@ -164,6 +164,9 @@ fn main() {
     let header_file_path = c_src_dir.join("c_kzg_4844.h");
     let header_file = header_file_path.to_str().expect("valid header file");
 
+    // Finally, tell cargo this provides ckzg/ckzg_min
+    println!("cargo:rustc-link-lib={lib_name}");
+
     make_bindings(
         lib_name,
         field_elements_per_blob,
@@ -171,9 +174,6 @@ fn main() {
         &blst_headers_dir.to_string_lossy(),
         bindings_out_path,
     );
-
-    // Finally, tell cargo this provides ckzg/ckzg_min
-    println!("cargo:rustc-link-lib={lib_name}");
 }
 
 fn make_bindings<P>(
