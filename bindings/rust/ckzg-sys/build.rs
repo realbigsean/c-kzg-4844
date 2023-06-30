@@ -123,6 +123,8 @@ fn main() {
         .parent()
         .expect("rust dir is nested")
         .parent()
+        .expect("rust dir is nested further")
+        .parent()
         .expect("bindings dir is nested");
 
     let field_elements_per_blob = if cfg!(feature = "minimal-spec") {
@@ -151,7 +153,12 @@ fn main() {
     cc.flag(format!("-DFIELD_ELEMENTS_PER_BLOB={}", field_elements_per_blob).as_str());
     cc.file(c_src_dir.join("c_kzg_4844.c"));
 
-    cc.try_compile("ckzg").expect("Failed to compile ckzg");
+    let lib_name = if cfg!(feature = "minimal-spec") {
+        "ckzgmin"
+    } else {
+        "ckzg"
+    };
+    cc.try_compile(lib_name).expect("Failed to compile ckzg");
 
     // Tell cargo to search for the static blst exposed by the blst-bindings' crate.
     println!("cargo:rustc-link-lib=static=blst");
@@ -167,8 +174,8 @@ fn main() {
         bindings_out_path,
     );
 
-    // Finally, tell cargo this provides ckzg
-    println!("cargo:rustc-link-lib=ckzg");
+    // Finally, tell cargo this provides ckzg(min)
+    println!("cargo:rustc-link-lib={lib_name}");
 }
 
 fn make_bindings<P>(
