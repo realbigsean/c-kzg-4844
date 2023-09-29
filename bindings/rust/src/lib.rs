@@ -12,8 +12,8 @@ mod bindings;
 
 // Expose relevant types with idiomatic names.
 pub use bindings::{
-    KZGCommitment as KzgCommitment, KZGProof as KzgProof, KZGSettings as KzgSettings,
-    C_KZG_RET as CkzgError,
+    kzg_mainnet, kzg_minimal, KZGCommitment as KzgCommitment, KZGProof as KzgProof,
+    KZGSettings as KzgSettings,
 };
 // Expose the constants.
 pub use bindings::{
