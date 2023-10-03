@@ -47,6 +47,18 @@ pub struct BlobGeneric<const BYTES_PER_BLOB: usize> {
     bytes: [u8; BYTES_PER_BLOB],
 }
 
+#[derive(Debug)]
+pub struct KzgSettingsGeneric<const FIELD_ELEMENTS_PER_BLOB: usize>(KZGSettings);
+
+impl<const FIELD_ELEMENTS_PER_BLOB: usize> KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB> {
+    pub fn new(kzg_settings: KZGSettings) -> Result<Self, Error> {
+        if kzg_settings.field_elements_per_blob() != FIELD_ELEMENTS_PER_BLOB {
+            return Err(Error::InvalidTrustedSetup("length mismatch".to_string()));
+        }
+        Ok(Self(kzg_settings))
+    }
+}
+
 impl<const BYTES_PER_BLOB: usize> BlobGeneric<BYTES_PER_BLOB> {
     pub fn new(bytes: [u8; BYTES_PER_BLOB]) -> Self {
         Self { bytes }
@@ -93,6 +105,8 @@ macro_rules! impl_kzg_presets {
             /// A basic blob data.
             pub type Blob = BlobGeneric<BYTES_PER_BLOB>;
 
+            pub type KzgSettings = KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB>;
+
             impl Kzg {
                 /// Loads a trusted setup in the format described below and
                 /// returns a `KzgSettings` struct.
@@ -105,8 +119,9 @@ macro_rules! impl_kzg_presets {
                 /// 65 lines with each line containing a hex encoded g2 byte value.
                 pub fn load_trusted_setup_file(
                     trusted_setup_file: &Path,
-                ) -> Result<KZGSettings, Error> {
-                    KZGSettings::load_trusted_setup_file(trusted_setup_file)
+                ) -> Result<KzgSettings, Error> {
+                    let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file)?;
+                    KzgSettings::new(kzg_settings)
                 }
 
                 /// Loads a trusted setup and returns a `KzgSettings` struct.
@@ -116,28 +131,22 @@ macro_rules! impl_kzg_presets {
                 pub fn load_trusted_setup(
                     g1_bytes: &[[u8; BYTES_PER_G1_POINT]],
                     g2_bytes: &[[u8; BYTES_PER_G2_POINT]],
-                ) -> Result<KZGSettings, Error> {
-                    KZGSettings::load_trusted_setup(g1_bytes, g2_bytes)
+                ) -> Result<KzgSettings, Error> {
+                    let kzg_settings = KZGSettings::load_trusted_setup(g1_bytes, g2_bytes)?;
+                    KzgSettings::new(kzg_settings)
                 }
 
                 /// Return the `KzgCommitment` corresponding to the `Blob`.
                 pub fn blob_to_kzg_commitment(
                     blob: &Blob,
-                    kzg_settings: &KZGSettings,
+                    kzg_settings: &KzgSettings,
                 ) -> Result<KZGCommitment, Error> {
-                    if blob.len() != kzg_settings.bytes_per_blob() {
-                        return Err(Error::MismatchLength(format!(
-                            "Blob has {} bytes, expected {} bytes",
-                            blob.len(),
-                            kzg_settings.bytes_per_blob()
-                        )));
-                    }
                     let mut kzg_commitment: MaybeUninit<KZGCommitment> = MaybeUninit::uninit();
                     unsafe {
                         let res = blob_to_kzg_commitment(
                             kzg_commitment.as_mut_ptr(),
                             blob.as_ptr(),
-                            kzg_settings,
+                            &kzg_settings.0,
                         );
                         if let C_KZG_RET::C_KZG_OK = res {
                             Ok(kzg_commitment.assume_init())
@@ -151,15 +160,8 @@ macro_rules! impl_kzg_presets {
                 pub fn compute_kzg_proof(
                     blob: &Blob,
                     z_bytes: &Bytes32,
-                    kzg_settings: &KZGSettings,
+                    kzg_settings: &KzgSettings,
                 ) -> Result<(KZGProof, Bytes32), Error> {
-                    if blob.len() != kzg_settings.bytes_per_blob() {
-                        return Err(Error::MismatchLength(format!(
-                            "Blob has {} bytes, expected {} bytes",
-                            blob.len(),
-                            kzg_settings.bytes_per_blob()
-                        )));
-                    }
                     let mut kzg_proof = MaybeUninit::<KZGProof>::uninit();
                     let mut y_out = MaybeUninit::<Bytes32>::uninit();
                     unsafe {
@@ -168,7 +170,7 @@ macro_rules! impl_kzg_presets {
                             y_out.as_mut_ptr(),
                             blob.as_ptr(),
                             z_bytes,
-                            kzg_settings,
+                            &kzg_settings.0,
                         );
                         if let C_KZG_RET::C_KZG_OK = res {
                             Ok((kzg_proof.assume_init(), y_out.assume_init()))
@@ -182,22 +184,15 @@ macro_rules! impl_kzg_presets {
                 pub fn compute_blob_kzg_proof(
                     blob: &Blob,
                     commitment_bytes: &Bytes48,
-                    kzg_settings: &KZGSettings,
+                    kzg_settings: &KzgSettings,
                 ) -> Result<KZGProof, Error> {
-                    if blob.len() != kzg_settings.bytes_per_blob() {
-                        return Err(Error::MismatchLength(format!(
-                            "Blob has {} bytes, expected {} bytes",
-                            blob.len(),
-                            kzg_settings.bytes_per_blob()
-                        )));
-                    }
                     let mut kzg_proof = MaybeUninit::<KZGProof>::uninit();
                     unsafe {
                         let res = compute_blob_kzg_proof(
                             kzg_proof.as_mut_ptr(),
                             blob.as_ptr(),
                             commitment_bytes,
-                            kzg_settings,
+                            &kzg_settings.0,
                         );
                         if let C_KZG_RET::C_KZG_OK = res {
                             Ok(kzg_proof.assume_init())
@@ -213,7 +208,7 @@ macro_rules! impl_kzg_presets {
                     z_bytes: &Bytes32,
                     y_bytes: &Bytes32,
                     proof_bytes: &Bytes48,
-                    kzg_settings: &KZGSettings,
+                    kzg_settings: &KzgSettings,
                 ) -> Result<bool, Error> {
                     let mut verified: MaybeUninit<bool> = MaybeUninit::uninit();
                     unsafe {
@@ -223,7 +218,7 @@ macro_rules! impl_kzg_presets {
                             z_bytes,
                             y_bytes,
                             proof_bytes,
-                            kzg_settings,
+                            &kzg_settings.0,
                         );
                         if let C_KZG_RET::C_KZG_OK = res {
                             Ok(verified.assume_init())
@@ -238,15 +233,8 @@ macro_rules! impl_kzg_presets {
                     blob: &Blob,
                     commitment_bytes: &Bytes48,
                     proof_bytes: &Bytes48,
-                    kzg_settings: &KZGSettings,
+                    kzg_settings: &KzgSettings,
                 ) -> Result<bool, Error> {
-                    if blob.len() != kzg_settings.bytes_per_blob() {
-                        return Err(Error::MismatchLength(format!(
-                            "Blob has {} bytes, expected {} bytes",
-                            blob.len(),
-                            kzg_settings.bytes_per_blob()
-                        )));
-                    }
                     let mut verified: MaybeUninit<bool> = MaybeUninit::uninit();
                     unsafe {
                         let res = verify_blob_kzg_proof(
@@ -254,7 +242,7 @@ macro_rules! impl_kzg_presets {
                             blob.as_ptr(),
                             commitment_bytes,
                             proof_bytes,
-                            kzg_settings,
+                            &kzg_settings.0,
                         );
                         if let C_KZG_RET::C_KZG_OK = res {
                             Ok(verified.assume_init())
@@ -270,7 +258,7 @@ macro_rules! impl_kzg_presets {
                     blobs: &[Blob],
                     commitments_bytes: &[Bytes48],
                     proofs_bytes: &[Bytes48],
-                    kzg_settings: &KZGSettings,
+                    kzg_settings: &KzgSettings,
                 ) -> Result<bool, Error> {
                     if blobs.len() != commitments_bytes.len() {
                         return Err(Error::MismatchLength(format!(
@@ -287,16 +275,8 @@ macro_rules! impl_kzg_presets {
                         )));
                     }
 
-                    let mut flat_blobs: Vec<u8> =
-                        Vec::with_capacity(blobs.len() * kzg_settings.bytes_per_blob());
+                    let mut flat_blobs: Vec<u8> = Vec::with_capacity(blobs.len() * BYTES_PER_BLOB);
                     for blob in blobs {
-                        if blob.len() != kzg_settings.bytes_per_blob() {
-                            return Err(Error::MismatchLength(format!(
-                                "Blob has {} bytes, expected {} bytes",
-                                blob.len(),
-                                kzg_settings.bytes_per_blob()
-                            )));
-                        }
                         flat_blobs.extend_from_slice(&blob);
                     }
 
@@ -308,7 +288,7 @@ macro_rules! impl_kzg_presets {
                             commitments_bytes.as_ptr(),
                             proofs_bytes.as_ptr(),
                             blobs.len(),
-                            kzg_settings,
+                            &kzg_settings.0,
                         );
                         if let C_KZG_RET::C_KZG_OK = res {
                             Ok(verified.assume_init())
@@ -648,7 +628,7 @@ unsafe impl Send for KZGSettings {}
 #[allow(unused_imports, dead_code)]
 mod tests {
     use super::*;
-    use kzg_mainnet::{Blob, Kzg, BYTES_PER_BLOB, FIELD_ELEMENTS_PER_BLOB};
+    use kzg_mainnet::{Blob, Kzg, KzgSettings, BYTES_PER_BLOB, FIELD_ELEMENTS_PER_BLOB};
     use rand::{rngs::ThreadRng, Rng};
     use std::{fs, path::PathBuf};
     use test_formats::{
@@ -670,7 +650,7 @@ mod tests {
     fn test_simple(trusted_setup_file: &Path) {
         let mut rng = rand::thread_rng();
         assert!(trusted_setup_file.exists());
-        let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file).unwrap();
+        let kzg_settings = Kzg::load_trusted_setup_file(trusted_setup_file).unwrap();
 
         let num_blobs: usize = rng.gen_range(1..16);
         let mut blobs: Vec<Blob> = (0..num_blobs)
@@ -728,7 +708,7 @@ mod tests {
     fn test_blob_to_kzg_commitment() {
         let trusted_setup_file = Path::new("../../src/trusted_setup.txt");
         assert!(trusted_setup_file.exists());
-        let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file).unwrap();
+        let kzg_settings = Kzg::load_trusted_setup_file(trusted_setup_file).unwrap();
         let test_files: Vec<PathBuf> = glob::glob(BLOB_TO_KZG_COMMITMENT_TESTS)
             .unwrap()
             .map(Result::unwrap)
@@ -754,7 +734,7 @@ mod tests {
     fn test_compute_kzg_proof() {
         let trusted_setup_file = Path::new("../../src/trusted_setup.txt");
         assert!(trusted_setup_file.exists());
-        let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file).unwrap();
+        let kzg_settings = Kzg::load_trusted_setup_file(trusted_setup_file).unwrap();
         let test_files: Vec<PathBuf> = glob::glob(COMPUTE_KZG_PROOF_TESTS)
             .unwrap()
             .map(Result::unwrap)
@@ -783,7 +763,7 @@ mod tests {
     fn test_compute_blob_kzg_proof() {
         let trusted_setup_file = Path::new("../../src/trusted_setup.txt");
         assert!(trusted_setup_file.exists());
-        let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file).unwrap();
+        let kzg_settings = Kzg::load_trusted_setup_file(trusted_setup_file).unwrap();
         let test_files: Vec<PathBuf> = glob::glob(COMPUTE_BLOB_KZG_PROOF_TESTS)
             .unwrap()
             .map(Result::unwrap)
@@ -810,7 +790,7 @@ mod tests {
     fn test_verify_kzg_proof() {
         let trusted_setup_file = Path::new("../../src/trusted_setup.txt");
         assert!(trusted_setup_file.exists());
-        let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file).unwrap();
+        let kzg_settings = Kzg::load_trusted_setup_file(trusted_setup_file).unwrap();
         let test_files: Vec<PathBuf> = glob::glob(VERIFY_KZG_PROOF_TESTS)
             .unwrap()
             .map(Result::unwrap)
@@ -841,7 +821,7 @@ mod tests {
     fn test_verify_blob_kzg_proof() {
         let trusted_setup_file = Path::new("../../src/trusted_setup.txt");
         assert!(trusted_setup_file.exists());
-        let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file).unwrap();
+        let kzg_settings = Kzg::load_trusted_setup_file(trusted_setup_file).unwrap();
         let test_files: Vec<PathBuf> = glob::glob(VERIFY_BLOB_KZG_PROOF_TESTS)
             .unwrap()
             .map(Result::unwrap)
@@ -871,7 +851,7 @@ mod tests {
     fn test_verify_blob_kzg_proof_batch() {
         let trusted_setup_file = Path::new("../../src/trusted_setup.txt");
         assert!(trusted_setup_file.exists());
-        let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file).unwrap();
+        let kzg_settings = Kzg::load_trusted_setup_file(trusted_setup_file).unwrap();
         let test_files: Vec<PathBuf> = glob::glob(VERIFY_BLOB_KZG_PROOF_BATCH_TESTS)
             .unwrap()
             .map(Result::unwrap)
