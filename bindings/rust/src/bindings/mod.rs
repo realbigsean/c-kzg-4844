@@ -13,6 +13,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 use core::fmt;
+use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 
@@ -20,6 +21,11 @@ use core::ops::{Deref, DerefMut};
 use alloc::ffi::CString;
 #[cfg(feature = "std")]
 use std::path::Path;
+
+pub const FIELD_ELEMENTS_PER_BLOB_MAINNET: usize = 4096;
+pub const BYTES_PER_BLOB_MAINNET: usize = FIELD_ELEMENTS_PER_BLOB_MAINNET * BYTES_PER_FIELD_ELEMENT;
+pub const FIELD_ELEMENTS_PER_BLOB_MINIMAL: usize = 4;
+pub const BYTES_PER_BLOB_MINIMAL: usize = FIELD_ELEMENTS_PER_BLOB_MINIMAL * BYTES_PER_FIELD_ELEMENT;
 
 pub const BYTES_PER_G1_POINT: usize = 48;
 pub const BYTES_PER_G2_POINT: usize = 96;
@@ -43,26 +49,56 @@ pub struct KZGProof {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct BlobGeneric<const BYTES_PER_BLOB: usize> {
+pub struct Blob<const BYTES_PER_BLOB: usize> {
     bytes: [u8; BYTES_PER_BLOB],
 }
 
+pub type MainnetBlob = Blob<BYTES_PER_BLOB_MAINNET>;
+pub type MinimalBlob = Blob<BYTES_PER_BLOB_MINIMAL>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenericBlob {
+    bytes: Vec<u8>,
+}
+
 #[derive(Debug)]
-pub struct KzgSettingsGeneric<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>(
-    KZGSettings,
-);
+pub struct KzgSettings<
+    const FIELD_ELEMENTS_PER_BLOB: usize,
+    const BYTES_PER_BLOB: usize,
+    B: ValidatedBlob,
+> {
+    kzg_settings: KZGSettings,
+    _phantom: PhantomData<B>,
+}
 
 pub type MainnetKzgSettings =
-    KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MAINNET, BYTES_PER_BLOB_MAINNET>;
-pub type MainnetBlob = BlobGeneric<BYTES_PER_BLOB_MAINNET>;
+    KzgSettings<FIELD_ELEMENTS_PER_BLOB_MAINNET, BYTES_PER_BLOB_MAINNET, MainnetBlob>;
 pub type MinimalKzgSettings =
-    KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL>;
-pub type MinimalBlob = BlobGeneric<BYTES_PER_BLOB_MINIMAL>;
+    KzgSettings<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL, MinimalBlob>;
+pub type GenericMainnetKzgSettings =
+    KzgSettings<FIELD_ELEMENTS_PER_BLOB_MAINNET, BYTES_PER_BLOB_MAINNET, GenericBlob>;
+pub type GenericMinimalKzgSettings =
+    KzgSettings<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL, GenericBlob>;
+
+impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
+    KzgSettings<FIELD_ELEMENTS_PER_BLOB, BYTES_PER_BLOB, GenericBlob>
+{
+    pub fn validate_blob(bytes: &[u8]) -> Result<GenericBlob, Error> {
+        let blob = slice_to_blob::<BYTES_PER_BLOB>(bytes)?;
+        Ok(GenericBlob {
+            bytes: blob.to_vec(),
+        })
+    }
+}
+
+pub trait ValidatedBlob: AsRef<[u8]> {}
+
+impl ValidatedBlob for MainnetBlob {}
+impl ValidatedBlob for MinimalBlob {}
+impl ValidatedBlob for GenericBlob {}
 
 pub trait KzgSettingsTrait {
     type Blob;
-
-    fn inner(&self) -> &KZGSettings;
 
     fn new(kzg_settings: KZGSettings) -> Result<Self, Error>
     where
@@ -116,20 +152,19 @@ pub trait KzgSettingsTrait {
     ) -> Result<bool, Error>;
 }
 
-impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSettingsTrait
-    for KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB, BYTES_PER_BLOB>
+impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize, B: ValidatedBlob>
+    KzgSettingsTrait for KzgSettings<FIELD_ELEMENTS_PER_BLOB, BYTES_PER_BLOB, B>
 {
-    type Blob = BlobGeneric<BYTES_PER_BLOB>;
-
-    fn inner(&self) -> &KZGSettings {
-        &self.0
-    }
+    type Blob = B;
 
     fn new(kzg_settings: KZGSettings) -> Result<Self, Error> {
         if kzg_settings.field_elements_per_blob() != FIELD_ELEMENTS_PER_BLOB {
             return Err(Error::InvalidTrustedSetup("length mismatch".to_string()));
         }
-        Ok(Self(kzg_settings))
+        Ok(Self {
+            kzg_settings,
+            _phantom: PhantomData,
+        })
     }
 
     /// Loads a trusted setup in the format described below and
@@ -159,16 +194,13 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
     }
 
     /// Return the `KzgCommitment` corresponding to the `Blob`.
-    fn blob_to_kzg_commitment(
-        &self,
-        blob: &BlobGeneric<BYTES_PER_BLOB>,
-    ) -> Result<KZGCommitment, Error> {
+    fn blob_to_kzg_commitment(&self, blob: &B) -> Result<KZGCommitment, Error> {
         let mut kzg_commitment: MaybeUninit<KZGCommitment> = MaybeUninit::uninit();
         unsafe {
             let res = blob_to_kzg_commitment(
                 kzg_commitment.as_mut_ptr(),
                 blob.as_ref().as_ptr(),
-                self.inner(),
+                &self.kzg_settings,
             );
             if let C_KZG_RET::C_KZG_OK = res {
                 Ok(kzg_commitment.assume_init())
@@ -179,11 +211,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
     }
 
     /// Compute the `KZGProof` given the `Blob` at the point corresponding to field element `z`.
-    fn compute_kzg_proof(
-        &self,
-        blob: &BlobGeneric<BYTES_PER_BLOB>,
-        z_bytes: &Bytes32,
-    ) -> Result<(KZGProof, Bytes32), Error> {
+    fn compute_kzg_proof(&self, blob: &B, z_bytes: &Bytes32) -> Result<(KZGProof, Bytes32), Error> {
         let mut kzg_proof = MaybeUninit::<KZGProof>::uninit();
         let mut y_out = MaybeUninit::<Bytes32>::uninit();
         unsafe {
@@ -192,7 +220,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
                 y_out.as_mut_ptr(),
                 blob.as_ref().as_ptr(),
                 z_bytes,
-                self.inner(),
+                &self.kzg_settings,
             );
             if let C_KZG_RET::C_KZG_OK = res {
                 Ok((kzg_proof.assume_init(), y_out.assume_init()))
@@ -205,7 +233,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
     /// Compute the `KZGProof` given the `Blob` and `KzgCommitment`.
     fn compute_blob_kzg_proof(
         &self,
-        blob: &BlobGeneric<BYTES_PER_BLOB>,
+        blob: &B,
         commitment_bytes: &Bytes48,
     ) -> Result<KZGProof, Error> {
         let mut kzg_proof = MaybeUninit::<KZGProof>::uninit();
@@ -214,7 +242,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
                 kzg_proof.as_mut_ptr(),
                 blob.as_ref().as_ptr(),
                 commitment_bytes,
-                self.inner(),
+                &self.kzg_settings,
             );
             if let C_KZG_RET::C_KZG_OK = res {
                 Ok(kzg_proof.assume_init())
@@ -240,7 +268,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
                 z_bytes,
                 y_bytes,
                 proof_bytes,
-                self.inner(),
+                &self.kzg_settings,
             );
             if let C_KZG_RET::C_KZG_OK = res {
                 Ok(verified.assume_init())
@@ -253,7 +281,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
     /// Given a blob and its proof, verify that it corresponds to the provided commitment.
     fn verify_blob_kzg_proof(
         &self,
-        blob: &BlobGeneric<BYTES_PER_BLOB>,
+        blob: &B,
         commitment_bytes: &Bytes48,
         proof_bytes: &Bytes48,
     ) -> Result<bool, Error> {
@@ -264,7 +292,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
                 blob.as_ref().as_ptr(),
                 commitment_bytes,
                 proof_bytes,
-                self.inner(),
+                &self.kzg_settings,
             );
             if let C_KZG_RET::C_KZG_OK = res {
                 Ok(verified.assume_init())
@@ -278,7 +306,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
     /// provided commitments.
     fn verify_blob_kzg_proof_batch(
         &self,
-        blobs: &[BlobGeneric<BYTES_PER_BLOB>],
+        blobs: &[B],
         commitments_bytes: &[Bytes48],
         proofs_bytes: &[Bytes48],
     ) -> Result<bool, Error> {
@@ -310,7 +338,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
                 commitments_bytes.as_ptr(),
                 proofs_bytes.as_ptr(),
                 blobs.len(),
-                self.inner(),
+                &self.kzg_settings,
             );
             if let C_KZG_RET::C_KZG_OK = res {
                 Ok(verified.assume_init())
@@ -321,41 +349,54 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize> KzgSetti
     }
 }
 
-impl<const BYTES_PER_BLOB: usize> BlobGeneric<BYTES_PER_BLOB> {
+impl<const BYTES_PER_BLOB: usize> Blob<BYTES_PER_BLOB> {
     pub fn new(bytes: [u8; BYTES_PER_BLOB]) -> Self {
         Self { bytes }
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() != BYTES_PER_BLOB {
-            return Err(Error::MismatchLength(format!(
-                "Blob length invalid {}",
-                bytes.len()
-            )));
-        }
-        let mut blob = [0; BYTES_PER_BLOB];
-        blob.copy_from_slice(bytes);
+        let blob = slice_to_blob::<BYTES_PER_BLOB>(bytes)?;
         Ok(Self { bytes: blob })
     }
 }
 
-impl<const BYTES_PER_BLOB: usize> Deref for BlobGeneric<BYTES_PER_BLOB> {
+impl<const BYTES_PER_BLOB: usize> Deref for Blob<BYTES_PER_BLOB> {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
         self.bytes.as_slice()
     }
 }
 
-impl<const BYTES_PER_BLOB: usize> std::convert::AsRef<[u8]> for BlobGeneric<BYTES_PER_BLOB> {
+impl<const BYTES_PER_BLOB: usize> std::convert::AsRef<[u8]> for Blob<BYTES_PER_BLOB> {
     fn as_ref(&self) -> &[u8] {
         self.bytes.as_slice()
     }
 }
 
-pub const FIELD_ELEMENTS_PER_BLOB_MAINNET: usize = 4096;
-pub const BYTES_PER_BLOB_MAINNET: usize = FIELD_ELEMENTS_PER_BLOB_MAINNET * BYTES_PER_FIELD_ELEMENT;
-pub const FIELD_ELEMENTS_PER_BLOB_MINIMAL: usize = 4;
-pub const BYTES_PER_BLOB_MINIMAL: usize = FIELD_ELEMENTS_PER_BLOB_MINIMAL * BYTES_PER_FIELD_ELEMENT;
+impl Deref for GenericBlob {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.bytes.as_slice()
+    }
+}
+
+impl std::convert::AsRef<[u8]> for GenericBlob {
+    fn as_ref(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+}
+
+fn slice_to_blob<const BYTES_PER_BLOB: usize>(bytes: &[u8]) -> Result<[u8; BYTES_PER_BLOB], Error> {
+    if bytes.len() != BYTES_PER_BLOB {
+        return Err(Error::MismatchLength(format!(
+            "Blob length invalid {}",
+            bytes.len()
+        )));
+    }
+    let mut blob = [0; BYTES_PER_BLOB];
+    blob.copy_from_slice(bytes);
+    Ok(blob)
+}
 
 #[derive(Debug)]
 pub enum Error {
