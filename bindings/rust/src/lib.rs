@@ -11,9 +11,7 @@ extern crate blst;
 mod bindings;
 
 // Expose relevant types with idiomatic names.
-pub use bindings::{
-    kzg_mainnet, kzg_minimal, KZGCommitment as KzgCommitment, KZGProof as KzgProof,
-};
+pub use bindings::*;
 // Expose the constants.
 pub use bindings::{
     BYTES_PER_COMMITMENT, BYTES_PER_FIELD_ELEMENT, BYTES_PER_G1_POINT, BYTES_PER_G2_POINT,
