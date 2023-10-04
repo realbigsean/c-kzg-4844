@@ -267,14 +267,14 @@ pub trait Kzg<const FIELD_ELEMENTS_PER_BLOB: usize> {
     }
 }
 
-struct MainnetKzg;
+pub struct MainnetKzg;
 impl Kzg<FIELD_ELEMENTS_PER_BLOB_MAINNET> for MainnetKzg {
     /// A basic blob data.
     type Blob = BlobGeneric<{ Self::BYTES_PER_BLOB }>;
     type KzgSettings = KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MAINNET>;
 }
 
-struct MinimalKzg;
+pub struct MinimalKzg;
 impl Kzg<FIELD_ELEMENTS_PER_BLOB_MINIMAL> for MinimalKzg {
     /// A basic blob data.
     type Blob = BlobGeneric<{ Self::BYTES_PER_BLOB }>;
