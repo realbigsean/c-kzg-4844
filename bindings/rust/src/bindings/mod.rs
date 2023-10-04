@@ -48,9 +48,14 @@ pub struct BlobGeneric<const BYTES_PER_BLOB: usize> {
 }
 
 #[derive(Debug)]
-pub struct KzgSettingsGeneric<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>(
+struct KzgSettingsGeneric<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>(
     KZGSettings,
 );
+
+pub type MainnetKzgSettings = KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MAINNET, BYTES_PER_BLOB_MAINNET>;
+pub type MainnetBlob = BlobGeneric<BYTES_PER_BLOB_MAINNET>;
+pub type MinimalKzgSettings = KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL>;
+pub type MinimalBlob = BlobGeneric<BYTES_PER_BLOB_MINIMAL>;
 
 impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB, BYTES_PER_BLOB>
