@@ -59,7 +59,7 @@ pub type MinimalKzgSettings =
     KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL>;
 pub type MinimalBlob = BlobGeneric<BYTES_PER_BLOB_MINIMAL>;
 
-trait KzgSettingsTrait {
+pub trait KzgSettingsTrait {
     type Blob;
 
     fn inner(&self) -> &KZGSettings;
