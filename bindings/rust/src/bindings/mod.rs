@@ -52,21 +52,21 @@ pub struct KzgSettingsGeneric<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_
     KZGSettings,
 );
 
-pub type MainnetKzgSettings = KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MAINNET, BYTES_PER_BLOB_MAINNET>;
+pub type MainnetKzgSettings =
+    KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MAINNET, BYTES_PER_BLOB_MAINNET>;
 pub type MainnetBlob = BlobGeneric<BYTES_PER_BLOB_MAINNET>;
-pub type MinimalKzgSettings = KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL>;
+pub type MinimalKzgSettings =
+    KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL>;
 pub type MinimalBlob = BlobGeneric<BYTES_PER_BLOB_MINIMAL>;
 
 impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     KzgSettingsGeneric<FIELD_ELEMENTS_PER_BLOB, BYTES_PER_BLOB>
 {
-    /// The number of bytes in a blob.
-
-    fn inner(&self) -> &KZGSettings {
+    pub fn inner(&self) -> &KZGSettings {
         &self.0
     }
 
-    fn new(kzg_settings: KZGSettings) -> Result<Self, Error> {
+    pub fn new(kzg_settings: KZGSettings) -> Result<Self, Error> {
         if kzg_settings.field_elements_per_blob() != FIELD_ELEMENTS_PER_BLOB {
             return Err(Error::InvalidTrustedSetup("length mismatch".to_string()));
         }
@@ -82,7 +82,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     /// 65 # This is fixed and is used for providing multiproofs up to 64 field elements.
     /// `FIELD_ELEMENT_PER_BLOB` lines with each line containing a hex encoded g1 byte value.
     /// 65 lines with each line containing a hex encoded g2 byte value.
-    fn load_trusted_setup_file(trusted_setup_file: &Path) -> Result<Self, Error> {
+    pub fn load_trusted_setup_file(trusted_setup_file: &Path) -> Result<Self, Error> {
         let kzg_settings = KZGSettings::load_trusted_setup_file(trusted_setup_file)?;
         Self::new(kzg_settings)
     }
@@ -91,7 +91,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     ///
     /// The `g1_bytes` and `g2_bytes` need to be extracted and parsed from a file
     /// and then passed into this function.
-    fn load_trusted_setup(
+    pub fn load_trusted_setup(
         g1_bytes: &[[u8; BYTES_PER_G1_POINT]],
         g2_bytes: &[[u8; BYTES_PER_G2_POINT]],
     ) -> Result<Self, Error> {
@@ -100,7 +100,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     }
 
     /// Return the `KzgCommitment` corresponding to the `Blob`.
-    fn blob_to_kzg_commitment(
+    pub fn blob_to_kzg_commitment(
         &self,
         blob: &BlobGeneric<BYTES_PER_BLOB>,
     ) -> Result<KZGCommitment, Error> {
@@ -120,7 +120,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     }
 
     /// Compute the `KZGProof` given the `Blob` at the point corresponding to field element `z`.
-    fn compute_kzg_proof(
+    pub fn compute_kzg_proof(
         &self,
         blob: &BlobGeneric<BYTES_PER_BLOB>,
         z_bytes: &Bytes32,
@@ -144,7 +144,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     }
 
     /// Compute the `KZGProof` given the `Blob` and `KzgCommitment`.
-    fn compute_blob_kzg_proof(
+    pub fn compute_blob_kzg_proof(
         &self,
         blob: &BlobGeneric<BYTES_PER_BLOB>,
         commitment_bytes: &Bytes48,
@@ -166,7 +166,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     }
 
     /// Verify a KZG proof claiming that `p(z) == y`.
-    fn verify_kzg_proof(
+    pub fn verify_kzg_proof(
         &self,
         commitment_bytes: &Bytes48,
         z_bytes: &Bytes32,
@@ -192,7 +192,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
     }
 
     /// Given a blob and its proof, verify that it corresponds to the provided commitment.
-    fn verify_blob_kzg_proof(
+    pub fn verify_blob_kzg_proof(
         &self,
         blob: &BlobGeneric<BYTES_PER_BLOB>,
         commitment_bytes: &Bytes48,
@@ -217,7 +217,7 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
 
     /// Given a list of blobs and blob KZG proofs, verify that they correspond to the
     /// provided commitments.
-    fn verify_blob_kzg_proof_batch(
+    pub fn verify_blob_kzg_proof_batch(
         &self,
         blobs: &[BlobGeneric<BYTES_PER_BLOB>],
         commitments_bytes: &[Bytes48],
