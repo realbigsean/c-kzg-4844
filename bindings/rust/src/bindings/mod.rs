@@ -48,7 +48,7 @@ pub struct BlobGeneric<const BYTES_PER_BLOB: usize> {
 }
 
 #[derive(Debug)]
-struct KzgSettingsGeneric<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>(
+pub struct KzgSettingsGeneric<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>(
     KZGSettings,
 );
 
