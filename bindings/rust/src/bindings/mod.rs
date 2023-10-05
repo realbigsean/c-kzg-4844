@@ -53,103 +53,74 @@ pub struct KZGProof {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Blob<const BYTES_PER_BLOB: usize> {
-    bytes: [u8; BYTES_PER_BLOB],
-}
-
-pub type MainnetBlob = Blob<BYTES_PER_BLOB_MAINNET>;
-pub type MinimalBlob = Blob<BYTES_PER_BLOB_MINIMAL>;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct GenericBlob {
-    bytes: Vec<u8>,
+pub struct ValidatedBlob<'a> {
+    bytes: &'a [u8],
 }
 
 #[derive(Debug)]
-pub struct KzgSettings<const BYTES_PER_BLOB: usize, B: ValidatedBlob> {
+pub struct KzgSettings<const BYTES_PER_BLOB: usize> {
     kzg_settings: KZGSettings,
-    _phantom: PhantomData<B>,
 }
 
-pub type MainnetKzgSettings = KzgSettings<BYTES_PER_BLOB_MAINNET, MainnetBlob>;
-pub type MinimalKzgSettings = KzgSettings<BYTES_PER_BLOB_MINIMAL, MinimalBlob>;
-pub type GenericMainnetKzgSettings = KzgSettings<BYTES_PER_BLOB_MAINNET, GenericBlob>;
-pub type GenericMinimalKzgSettings = KzgSettings<BYTES_PER_BLOB_MINIMAL, GenericBlob>;
+pub type MainnetKzgSettings = KzgSettings<BYTES_PER_BLOB_MAINNET>;
+pub type MinimalKzgSettings = KzgSettings<BYTES_PER_BLOB_MINIMAL>;
 
-impl<const BYTES_PER_BLOB: usize> KzgSettings<BYTES_PER_BLOB, GenericBlob> {
-    pub fn validate_blob(bytes: &[u8]) -> Result<GenericBlob, Error> {
-        let blob = slice_to_blob::<BYTES_PER_BLOB>(bytes)?;
-        Ok(GenericBlob {
-            bytes: blob.to_vec(),
-        })
+impl<const BYTES_PER_BLOB: usize> KzgSettings<BYTES_PER_BLOB> {
+    pub fn blob_to_kzg_commitment(&self, blob: &[u8]) -> Result<KZGCommitment, Error> {
+        self.blob_to_kzg_commitment_inner(Self::validate_blob(blob)?)
     }
-}
 
-pub trait ValidatedBlob: AsRef<[u8]> {}
-
-impl ValidatedBlob for MainnetBlob {}
-impl ValidatedBlob for MinimalBlob {}
-impl ValidatedBlob for GenericBlob {}
-
-pub trait KzgSettingsTrait {
-    type Blob;
-
-    fn new(kzg_settings: KZGSettings) -> Result<Self, Error>
-    where
-        Self: Sized;
-
-    fn load_trusted_setup_file(trusted_setup_file: &Path) -> Result<Self, Error>
-    where
-        Self: Sized;
-
-    fn load_trusted_setup(
-        g1_bytes: &[[u8; BYTES_PER_G1_POINT]],
-        g2_bytes: &[[u8; BYTES_PER_G2_POINT]],
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
-
-    fn blob_to_kzg_commitment(&self, blob: &Self::Blob) -> Result<KZGCommitment, Error>;
-
-    fn compute_kzg_proof(
+    pub fn compute_kzg_proof(
         &self,
-        blob: &Self::Blob,
+        blob: &[u8],
         z_bytes: &Bytes32,
-    ) -> Result<(KZGProof, Bytes32), Error>;
+    ) -> Result<(KZGProof, Bytes32), Error> {
+        self.compute_kzg_proof_inner(Self::validate_blob(blob)?, z_bytes)
+    }
 
-    fn compute_blob_kzg_proof(
+    pub fn compute_blob_kzg_proof(
         &self,
-        blob: &Self::Blob,
+        blob: &[u8],
         commitment_bytes: &Bytes48,
-    ) -> Result<KZGProof, Error>;
+    ) -> Result<KZGProof, Error> {
+        self.compute_blob_kzg_proof_inner(Self::validate_blob(blob)?, commitment_bytes)
+    }
 
-    fn verify_kzg_proof(
+    pub fn verify_blob_kzg_proof(
         &self,
-        commitment_bytes: &Bytes48,
-        z_bytes: &Bytes32,
-        y_bytes: &Bytes32,
-        proof_bytes: &Bytes48,
-    ) -> Result<bool, Error>;
-
-    fn verify_blob_kzg_proof(
-        &self,
-        blob: &Self::Blob,
+        blob: &[u8],
         commitment_bytes: &Bytes48,
         proof_bytes: &Bytes48,
-    ) -> Result<bool, Error>;
+    ) -> Result<bool, Error> {
+        self.verify_blob_kzg_proof_inner(Self::validate_blob(blob)?, commitment_bytes, proof_bytes)
+    }
 
-    fn verify_blob_kzg_proof_batch(
+    pub fn verify_blob_kzg_proof_batch(
         &self,
-        blobs: &[Self::Blob],
+        blobs: &[&[u8]],
         commitments_bytes: &[Bytes48],
         proofs_bytes: &[Bytes48],
-    ) -> Result<bool, Error>;
-}
+    ) -> Result<bool, Error> {
+        self.verify_blob_kzg_proof_batch_inner(
+            &blobs
+                .iter()
+                .map(|blob| Self::validate_blob(blob))
+                .collect::<Result<Vec<_>, _>>()?,
+            commitments_bytes,
+            proofs_bytes,
+        )
+    }
 
-impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
-    for KzgSettings<BYTES_PER_BLOB, B>
-{
-    type Blob = B;
+    fn validate_blob<'a>(bytes: &'a [u8]) -> Result<ValidatedBlob<'a>, Error> {
+        if bytes.len() != BYTES_PER_BLOB {
+            return Err(Error::MismatchLength(format!(
+                "Blob length invalid {}",
+                bytes.len()
+            )));
+        }
+
+        Ok(ValidatedBlob { bytes })
+    }
 
     fn new(kzg_settings: KZGSettings) -> Result<Self, Error> {
         let field_elements_per_blob = BYTES_PER_BLOB / BYTES_PER_FIELD_ELEMENT;
@@ -163,10 +134,7 @@ impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
                 "bytes length mismatch".to_string(),
             ));
         }
-        Ok(Self {
-            kzg_settings,
-            _phantom: PhantomData,
-        })
+        Ok(Self { kzg_settings })
     }
 
     /// Loads a trusted setup in the format described below and
@@ -196,7 +164,10 @@ impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
     }
 
     /// Return the `KzgCommitment` corresponding to the `Blob`.
-    fn blob_to_kzg_commitment(&self, blob: &B) -> Result<KZGCommitment, Error> {
+    fn blob_to_kzg_commitment_inner<'a>(
+        &self,
+        blob: ValidatedBlob<'a>,
+    ) -> Result<KZGCommitment, Error> {
         let mut kzg_commitment: MaybeUninit<KZGCommitment> = MaybeUninit::uninit();
         unsafe {
             let res = blob_to_kzg_commitment(
@@ -213,7 +184,11 @@ impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
     }
 
     /// Compute the `KZGProof` given the `Blob` at the point corresponding to field element `z`.
-    fn compute_kzg_proof(&self, blob: &B, z_bytes: &Bytes32) -> Result<(KZGProof, Bytes32), Error> {
+    fn compute_kzg_proof_inner<'a>(
+        &self,
+        blob: ValidatedBlob<'a>,
+        z_bytes: &Bytes32,
+    ) -> Result<(KZGProof, Bytes32), Error> {
         let mut kzg_proof = MaybeUninit::<KZGProof>::uninit();
         let mut y_out = MaybeUninit::<Bytes32>::uninit();
         unsafe {
@@ -233,9 +208,9 @@ impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
     }
 
     /// Compute the `KZGProof` given the `Blob` and `KzgCommitment`.
-    fn compute_blob_kzg_proof(
+    fn compute_blob_kzg_proof_inner<'a>(
         &self,
-        blob: &B,
+        blob: ValidatedBlob<'a>,
         commitment_bytes: &Bytes48,
     ) -> Result<KZGProof, Error> {
         let mut kzg_proof = MaybeUninit::<KZGProof>::uninit();
@@ -281,9 +256,9 @@ impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
     }
 
     /// Given a blob and its proof, verify that it corresponds to the provided commitment.
-    fn verify_blob_kzg_proof(
+    fn verify_blob_kzg_proof_inner<'a>(
         &self,
-        blob: &B,
+        blob: ValidatedBlob<'a>,
         commitment_bytes: &Bytes48,
         proof_bytes: &Bytes48,
     ) -> Result<bool, Error> {
@@ -306,9 +281,9 @@ impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
 
     /// Given a list of blobs and blob KZG proofs, verify that they correspond to the
     /// provided commitments.
-    fn verify_blob_kzg_proof_batch(
+    fn verify_blob_kzg_proof_batch_inner<'a>(
         &self,
-        blobs: &[B],
+        blobs: &[ValidatedBlob<'a>],
         commitments_bytes: &[Bytes48],
         proofs_bytes: &[Bytes48],
     ) -> Result<bool, Error> {
@@ -352,53 +327,17 @@ impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
     }
 }
 
-impl<const BYTES_PER_BLOB: usize> Blob<BYTES_PER_BLOB> {
-    pub fn new(bytes: [u8; BYTES_PER_BLOB]) -> Self {
-        Self { bytes }
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let blob = slice_to_blob::<BYTES_PER_BLOB>(bytes)?;
-        Ok(Self { bytes: blob })
-    }
-}
-
-impl<const BYTES_PER_BLOB: usize> Deref for Blob<BYTES_PER_BLOB> {
+impl<'a> Deref for ValidatedBlob<'a> {
     type Target = [u8];
-    fn deref(&self) -> &Self::Target {
-        self.bytes.as_slice()
+    fn deref(&self) -> &'a Self::Target {
+        self.bytes
     }
 }
 
-impl<const BYTES_PER_BLOB: usize> std::convert::AsRef<[u8]> for Blob<BYTES_PER_BLOB> {
-    fn as_ref(&self) -> &[u8] {
-        self.bytes.as_slice()
+impl<'a> std::convert::AsRef<[u8]> for ValidatedBlob<'a> {
+    fn as_ref(&self) -> &'a [u8] {
+        self.bytes
     }
-}
-
-impl Deref for GenericBlob {
-    type Target = [u8];
-    fn deref(&self) -> &Self::Target {
-        self.bytes.as_slice()
-    }
-}
-
-impl std::convert::AsRef<[u8]> for GenericBlob {
-    fn as_ref(&self) -> &[u8] {
-        self.bytes.as_slice()
-    }
-}
-
-fn slice_to_blob<const BYTES_PER_BLOB: usize>(bytes: &[u8]) -> Result<[u8; BYTES_PER_BLOB], Error> {
-    if bytes.len() != BYTES_PER_BLOB {
-        return Err(Error::MismatchLength(format!(
-            "Blob length invalid {}",
-            bytes.len()
-        )));
-    }
-    let mut blob = [0; BYTES_PER_BLOB];
-    blob.copy_from_slice(bytes);
-    Ok(blob)
 }
 
 #[derive(Debug)]
