@@ -551,6 +551,14 @@ impl KZGSettings {
 
         result
     }
+
+    pub fn field_elements_per_blob(&self) -> usize {
+        self.field_elements_per_blob as usize
+    }
+
+    pub fn bytes_per_blob(&self) -> usize {
+        self.bytes_per_blob as usize
+    }
 }
 
 impl Drop for KZGSettings {
