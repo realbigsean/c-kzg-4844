@@ -66,27 +66,17 @@ pub struct GenericBlob {
 }
 
 #[derive(Debug)]
-pub struct KzgSettings<
-    const FIELD_ELEMENTS_PER_BLOB: usize,
-    const BYTES_PER_BLOB: usize,
-    B: ValidatedBlob,
-> {
+pub struct KzgSettings<const BYTES_PER_BLOB: usize, B: ValidatedBlob> {
     kzg_settings: KZGSettings,
     _phantom: PhantomData<B>,
 }
 
-pub type MainnetKzgSettings =
-    KzgSettings<FIELD_ELEMENTS_PER_BLOB_MAINNET, BYTES_PER_BLOB_MAINNET, MainnetBlob>;
-pub type MinimalKzgSettings =
-    KzgSettings<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL, MinimalBlob>;
-pub type GenericMainnetKzgSettings =
-    KzgSettings<FIELD_ELEMENTS_PER_BLOB_MAINNET, BYTES_PER_BLOB_MAINNET, GenericBlob>;
-pub type GenericMinimalKzgSettings =
-    KzgSettings<FIELD_ELEMENTS_PER_BLOB_MINIMAL, BYTES_PER_BLOB_MINIMAL, GenericBlob>;
+pub type MainnetKzgSettings = KzgSettings<BYTES_PER_BLOB_MAINNET, MainnetBlob>;
+pub type MinimalKzgSettings = KzgSettings<BYTES_PER_BLOB_MINIMAL, MinimalBlob>;
+pub type GenericMainnetKzgSettings = KzgSettings<BYTES_PER_BLOB_MAINNET, GenericBlob>;
+pub type GenericMinimalKzgSettings = KzgSettings<BYTES_PER_BLOB_MINIMAL, GenericBlob>;
 
-impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize>
-    KzgSettings<FIELD_ELEMENTS_PER_BLOB, BYTES_PER_BLOB, GenericBlob>
-{
+impl<const BYTES_PER_BLOB: usize> KzgSettings<BYTES_PER_BLOB, GenericBlob> {
     pub fn validate_blob(bytes: &[u8]) -> Result<GenericBlob, Error> {
         let blob = slice_to_blob::<BYTES_PER_BLOB>(bytes)?;
         Ok(GenericBlob {
@@ -156,14 +146,22 @@ pub trait KzgSettingsTrait {
     ) -> Result<bool, Error>;
 }
 
-impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize, B: ValidatedBlob>
-    KzgSettingsTrait for KzgSettings<FIELD_ELEMENTS_PER_BLOB, BYTES_PER_BLOB, B>
+impl<const BYTES_PER_BLOB: usize, B: ValidatedBlob> KzgSettingsTrait
+    for KzgSettings<BYTES_PER_BLOB, B>
 {
     type Blob = B;
 
     fn new(kzg_settings: KZGSettings) -> Result<Self, Error> {
-        if kzg_settings.field_elements_per_blob() != FIELD_ELEMENTS_PER_BLOB {
-            return Err(Error::InvalidTrustedSetup("length mismatch".to_string()));
+        let field_elements_per_blob = BYTES_PER_BLOB / BYTES_PER_FIELD_ELEMENT;
+        if kzg_settings.field_elements_per_blob() != field_elements_per_blob {
+            return Err(Error::InvalidTrustedSetup(
+                "field elements length mismatch".to_string(),
+            ));
+        }
+        if kzg_settings.bytes_per_blob() != BYTES_PER_BLOB {
+            return Err(Error::InvalidTrustedSetup(
+                "bytes length mismatch".to_string(),
+            ));
         }
         Ok(Self {
             kzg_settings,
@@ -329,7 +327,8 @@ impl<const FIELD_ELEMENTS_PER_BLOB: usize, const BYTES_PER_BLOB: usize, B: Valid
             )));
         }
 
-        let mut flat_blobs: Vec<u8> = Vec::with_capacity(blobs.len() * FIELD_ELEMENTS_PER_BLOB);
+        let mut flat_blobs: Vec<u8> =
+            Vec::with_capacity(blobs.len() * self.kzg_settings.field_elements_per_blob());
         for blob in blobs {
             flat_blobs.extend_from_slice(blob.as_ref());
         }
